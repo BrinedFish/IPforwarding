@@ -24,13 +24,12 @@ void got_packet1(u_char *args, const struct pcap_pkthdr *header, const u_char *p
     tempStorage1 = packet;
 }
 
-[[noreturn]] void PortIn::packetCapture() {
+[[noreturn]] void PortIn::packetCapture(const string &filter_cidr) {
     char *dev = nullptr;
     char errbuf[PCAP_ERRBUF_SIZE];
     pcap_t *handle;
-    // 设置过滤器，这里抓取172.或10.的分组
-    char filter_exp0[] = "dst net 172"; // Port 0抓取发往172.的分组
-    char filter_exp1[] = "dst net 10"; // Port 1抓取发往10.的分组
+    // 设置抓包过滤条件
+    string filter_exp = "dst net " + filter_cidr;
     struct bpf_program fp;
     bpf_u_int32 mask;
     bpf_u_int32 net;
@@ -38,59 +37,54 @@ void got_packet1(u_char *args, const struct pcap_pkthdr *header, const u_char *p
     // 寻找默认网络接口
     dev = pcap_lookupdev(errbuf);
     if (dev == nullptr) {
-        cerr << "Couldn't find default device: " << errbuf << endl;
-        abort();
+        cerr << "[Error] Couldn't find default device: " << errbuf << endl;
+        exit(EXIT_FAILURE);
     }
     // 获取网络接口参数
     if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
-        cerr << "Couldn't get netmask for device " << dev << ": " << errbuf << endl;
+        cout << "[Warning] Couldn't get netmask for device " << dev << ": " << errbuf << endl;
         net = 0;
         mask = 0;
     }
     handle = pcap_open_live(dev, SNAP_LEN, 1, 1000, errbuf);
     if (handle == nullptr) {
-        cerr << "Couldn't open device " << dev << ": " << errbuf << endl;
-        abort();
+        cerr << "[Error] Couldn't open device " << dev << ": " << errbuf << endl;
+        exit(EXIT_FAILURE);
     }
     // 检查是否为以太网设备
     if (pcap_datalink(handle) != DLT_EN10MB) {
-        cerr << dev << " is not an Ethernet device" << endl;
-        abort();
+        cerr << "[Error] " << dev << " is not an Ethernet device" << endl;
+        exit(EXIT_FAILURE);
     }
-    // 编译过滤器并开始抓包
+    // 应用过滤条件
+    if (pcap_compile(handle, &fp, filter_exp.c_str(), 0, net) == -1) {
+        cerr << "[Error] Couldn't parse filter " << filter_exp << ": " << pcap_geterr(handle) << endl;
+        exit(EXIT_FAILURE);
+    }
+    if (pcap_setfilter(handle, &fp) == -1) {
+        cerr << "[Error] Couldn't install filter " << filter_exp << ": " << pcap_geterr(handle) << endl;
+        exit(EXIT_FAILURE);
+    }
+    // 开始抓包
     switch (id) {
         case 0:
-            if (pcap_compile(handle, &fp, filter_exp0, 0, net) == -1) {
-                cerr << "Couldn't parse filter " << filter_exp0 << ": " << pcap_geterr(handle) << endl;
-                abort();
-            }
-            if (pcap_setfilter(handle, &fp) == -1) {
-                cerr << "Couldn't install filter " << filter_exp0 << ": " << pcap_geterr(handle) << endl;
-                abort();
-            }
-            cout << "[Port 0] Port 0 is listening on " << dev << " for 172.0.0.0/8." << endl;
+            cout << "[Port 0] Port 0 is listening on " << dev << " for packets to "
+                 << filter_cidr << "." << endl;
             while (true) {
                 pcap_loop(handle, 1, got_packet0, nullptr);
                 // 数据包指针向后移动以太网帧头部的长度，即从原始数据包（以太网帧）中取出IP数据报
-                queueAppend(tempStorage0 + SIZE_ETHERNET, this->queue);
                 cout << endl << "[Port 0] " << "A packet captured via " << dev << endl;
+                queueAppend(tempStorage0 + SIZE_ETHERNET, this->queue); // 加入输入队列
             }
             break;
         case 1:
-            if (pcap_compile(handle, &fp, filter_exp1, 0, net) == -1) {
-                cerr << "Couldn't parse filter " << filter_exp1 << ": " << pcap_geterr(handle) << endl;
-                abort();
-            }
-            if (pcap_setfilter(handle, &fp) == -1) {
-                cerr << "Couldn't install filter " << filter_exp1 << ": " << pcap_geterr(handle) << endl;
-                abort();
-            }
-            cout << "[Port 1] Port 1 is listening on " << dev << " for 10.0.0.0/8." << endl;
+            cout << "[Port 1] Port 1 is listening on " << dev << " for packets to "
+                 << filter_cidr << "." << endl;
             while (true) {
                 pcap_loop(handle, 1, got_packet1, nullptr);
                 // 数据包指针向后移动以太网帧头部的长度，即从原始数据包（以太网帧）中取出IP数据报
-                queueAppend(tempStorage1 + SIZE_ETHERNET, this->queue);
                 cout << endl << "[Port 1] " << "A packet captured via " << dev << endl;
+                queueAppend(tempStorage1 + SIZE_ETHERNET, this->queue); // 加入输入队列
             }
             break;
     }
@@ -104,6 +98,6 @@ bool PortIn::isEmpty() {
     return !this->queue->next;
 }
 
-void PortIn::operator()() {
-    this->packetCapture();
+void PortIn::operator()(const string &filter_cidr) {
+    this->packetCapture(filter_cidr);
 }
