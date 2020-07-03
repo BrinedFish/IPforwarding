@@ -17,21 +17,26 @@ int main() {
     // 载入路由表
     cout << "[Initialization] Loading forwarding table..." << endl;
     string ip, mask, port;
-    ifstream infile("table.txt");
-    if (!infile.is_open()) {
-        cerr << "[Error] File not found." << endl;
-        exit(EXIT_FAILURE);
-    }
-    for (int i = 0; i < 4; ++i) {
-        infile >> ip >> mask >> port;
-        if (stoi(port) != i) {
-            cerr << "[Error] Wrong format." << endl;
+    try {
+        ifstream infile("table.txt");
+        if (!infile.is_open()) {
+            cerr << "[Error] File not found." << endl;
             exit(EXIT_FAILURE);
         }
-        tableAppend(ip.c_str(), mask.c_str(), i, forwardingTable);
+        for (int i = 0; i < 4; ++i) {
+            infile >> ip >> mask >> port;
+            if (stoi(port) != i) {
+                cerr << "[Error] Wrong format." << endl;
+                exit(EXIT_FAILURE);
+            }
+            tableAppend(ip.c_str(), mask.c_str(), i, forwardingTable);
+        }
+        infile.close();
+        tableDisplay(forwardingTable);
+    } catch (invalid_argument) {
+        cerr << "[Error] Wrong format." << endl;
+        exit(EXIT_FAILURE);
     }
-    infile.close();
-    tableDisplay(forwardingTable);
     cout << "[Initialization] Forwarding table loaded." << endl;
 
     // 载入抓包过滤条件
